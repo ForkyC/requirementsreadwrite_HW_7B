@@ -3,7 +3,11 @@ from .reader import Reader
 from .writer import Writer
 from .ftdi_device import FtdiDevice
 from .wavegen import Wave
+from .script_runner import ScriptRunner
 
+def run_command(args):
+    runner = ScriptRunner(args.script)
+    runner.run()
 def main():
     p = argparse.ArgumentParser(
         prog="oscifgen", description="Oscilloscope & Function Generator (Python)")
