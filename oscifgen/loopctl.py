@@ -2,10 +2,11 @@
 from dataclasses import dataclass
 import threading
 
+
 @dataclass
 class LoopPlan:
-    n_bytes: int | None    # total target bytes/samples; None = ignore
-    loops: int | None      # max loop iterations/chunks; None = ignore
+    n_bytes: int | None    # total target bytes/samples; None => ignore
+    loops: int | None      # max loop iterations; None => ignore
     chunk: int             # bytes per read/write
 
 class StopToken:
@@ -38,4 +39,3 @@ class LoopController:
     def totals(self) -> tuple[int,int]:
         with self._lock:
             return self._bytes, self._loops
-
