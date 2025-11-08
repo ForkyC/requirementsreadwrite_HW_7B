@@ -8,6 +8,7 @@ from .script_runner import ScriptRunner
 def run_command(args):
     runner = ScriptRunner(args.script)
     runner.run()
+
 def main():
     p = argparse.ArgumentParser(
         prog="oscifgen", description="Oscilloscope & Function Generator (Python)")
@@ -42,9 +43,18 @@ def main():
     g.add_argument("--wave", choices=["sine", "square", "triangle"], default="sine")
     g.add_argument("--amp", type=float, default=1.0)
 
+    # NEW: Run (scripted sequence: start/wait/stop/read/write)
+    r = sub.add_parser(
+        "run", help="Execute command script file (start, wait, stop, read, write)")
+    r.add_argument("--script", required=True, help="Path to JSON script file")
+
     args = p.parse_args()
 
-    # Require at least one termination condition (N or loops) for both modes
+    # Handle 'run' BEFORE any acquire/generate validation or FTDI open
+    if args.cmd == "run":
+        return run_command(args)
+
+    # Require at least one termination condition (N or loops) for acquire/generate
     if args.cmd in ("acquire", "generate") and (args.n is None and args.loops is None):
         raise SystemExit("Provide --n or --loops (or both). Example: --n 8192 or --loops 100")
 
@@ -62,7 +72,9 @@ def main():
             loops=args.loops,
             chunk=args.chunk
         )
-    else:
+        return
+
+    if args.cmd == "generate":
         w = {"sine": Wave.SINE, "square": Wave.SQUARE, "triangle": Wave.TRIANGLE}[args.wave]
         Writer().run(
             dev=dev,
@@ -74,4 +86,4 @@ def main():
             loops=args.loops,
             chunk=args.chunk
         )
-
+        return

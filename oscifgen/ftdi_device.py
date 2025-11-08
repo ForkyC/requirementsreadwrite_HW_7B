@@ -1,55 +1,58 @@
-# ftdi_device.py
+# oscifgen/ftdi_device.py
 from __future__ import annotations
-from pyftdi.serialext import serial_for_url
-from .device import Device, IoResult
+from dataclasses import dataclass
 
+# Try to import pyftdi; allow running without hardware
+try:
+    from pyftdi.serialext import serial_for_url
+except Exception:
+    serial_for_url = None
 
-class FtdiDevice(Device):
-    """
-    Simple FTDI backend using pyftdi's serial URL.
-    Default URL opens the first available interface 1.
-    """
+@dataclass
+class IOResult:
+    bytes: int
+    err: str | None = None
 
-    def __init__(self, url: str = 'ftdi://::/1', baudrate: int = 3_000_000, timeout: float = 0.05):
-        self.url = url
-        self.baudrate = baudrate
-        self.timeout = timeout
-        self.serial = None
+class FtdiDevice:
+    def __init__(self) -> None:
+        self._ser = None
 
-    def open(self, path: str = '') -> bool:
-        try:
-            # 'path' unused; we rely on URL fields
-            self.serial = serial_for_url(
-                self.url, baudrate=self.baudrate, timeout=self.timeout)
-            return True
-        except Exception:
+    def open(self, url: str) -> bool:
+        """Open FTDI URL like 'ftdi://::/1'."""
+        if serial_for_url is None:
+            print("[FTDI] pyftdi not installed or unavailable.")
             return False
+        try:
+            self._ser = serial_for_url(url, timeout=1)
+            return True
+        except Exception as e:
+            print(f"[FTDI] open failed: {e}")
+            self._ser = None
+            return False
+
+    def read(self, n: int) -> IOResult:
+        if not self._ser:
+            # Behave like EOF / no device to keep higher layers running
+            return IOResult(bytes=0, err="no_device")
+        try:
+            data = self._ser.read(n)
+            return IOResult(bytes=len(data), err=None)
+        except Exception as e:
+            return IOResult(bytes=-1, err=str(e))
+
+    def write(self, buf: bytes) -> IOResult:
+        if not self._ser:
+            # Pretend we "wrote" to allow demos without hardware
+            return IOResult(bytes=len(buf), err="no_device")
+        try:
+            n = self._ser.write(buf)
+            return IOResult(bytes=int(n), err=None)
+        except Exception as e:
+            return IOResult(bytes=-1, err=str(e))
 
     def close(self) -> None:
         try:
-            if self.serial:
-                self.serial.close()
+            if self._ser:
+                self._ser.close()
         finally:
-            self.serial = None
-
-    def read(self, n: int) -> IoResult:
-        if not self.serial:
-            return IoResult(-1, "not-open")
-        try:
-            data = self.serial.read(n)
-            return IoResult(len(data) if data else 0, "")
-        except Exception as e:
-            return IoResult(0, f"read-error:{e}")
-
-    def write(self, data: bytes) -> IoResult:
-        if not self.serial:
-            return IoResult(-1, "not-open")
-        try:
-            n = self.serial.write(data)
-            self.serial.flush()
-            return IoResult(int(n), "")
-        except Exception as e:
-            return IoResult(0, f"write-error:{e}")
-
-    def is_connected(self) -> bool:
-        return self.serial is not None
+            self._ser = None

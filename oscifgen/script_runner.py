@@ -1,96 +1,154 @@
-import json
-import time
-import threading
+import json, time, threading
 from .reader import Reader
 from .writer import Writer
-from .loopctl import LoopController
+from .ftdi_device import FtdiDevice
+from .wavegen import Wave
 
 class ScriptRunner:
     """
-    Executes a JSON command script with actions:
-    start, wait, stop, read, write.
-    Supports both threaded and one-shot operations.
+    Executes a JSON script with commands:
+      start, wait, stop, read, write
+    Example:
+    {
+      "sequence": [
+        { "start": { "mode": "acquire",
+                     "in": "ftdi://::/1",
+                     "out": "capture.bin",
+                     "fs": 1000,
+                     "n": 1024,
+                     "loops": 10,
+                     "chunk": 512 } },
+        { "wait":  { "seconds": 2 } },
+        { "stop":  {} },
+        { "write": { "out": "ftdi://::/1",
+                     "fo": 2000,
+                     "n": 2048,
+                     "wave": "square",
+                     "amp": 1.0,
+                     "chunk": 512 } }
+      ]
+    }
     """
-
-    def __init__(self, script_path):
+    def __init__(self, script_path: str):
         self.script_path = script_path
-        self.active_thread = None
-        self.loopctl = LoopController()
+        self._bg = None  # background thread
 
     def run(self):
-        print(f"[ScriptRunner] Loading script: {self.script_path}")
         with open(self.script_path, "r") as f:
-            script = json.load(f)
-
-        sequence = script.get("sequence", [])
-        for step in sequence:
-            command = list(step.keys())[0]
-            params = step[command]
-            print(f"\n[ScriptRunner] Executing: {command.upper()}")
-
-            if command == "start":
-                self._start_thread(params)
-            elif command == "wait":
+            doc = json.load(f)
+        seq = doc.get("sequence", [])
+        for step in seq:
+            if not isinstance(step, dict) or len(step) != 1:
+                print(f"[WARN] Bad step: {step}")
+                continue
+            cmd, params = next(iter(step.items()))
+            params = params or {}
+            cmd = cmd.lower()
+            print(f"\n[ScriptRunner] {cmd.upper()}")
+            if cmd == "start":
+                self._start(params)
+            elif cmd == "wait":
                 self._wait(params)
-            elif command == "stop":
+            elif cmd == "stop":
                 self._stop()
-            elif command == "read":
+            elif cmd == "read":
                 self._read(params)
-            elif command == "write":
+            elif cmd == "write":
                 self._write(params)
             else:
-                print(f"[WARN] Unknown command: {command}")
+                print(f"[WARN] Unknown command: {cmd}")
+        print("\n[ScriptRunner] Done.")
 
-        print("\n[ScriptRunner] Script complete.")
+    # ---- handlers ----
+    def _start(self, p):
+        mode   = (p.get("mode") or "acquire").lower()
+        in_url = p.get("in")
+        out    = p.get("out")
+        fs     = p.get("fs")
+        fo     = p.get("fo")
+        n      = p.get("n")
+        loops  = p.get("loops")
+        chunk  = p.get("chunk", 512)
+        amp    = p.get("amp", 1.0)
+        wave_name = (p.get("wave") or "sine").lower()
+        w = {"sine": Wave.SINE, "square": Wave.SQUARE, "triangle": Wave.TRIANGLE}.get(wave_name, Wave.SINE)
 
-    # ------------------ Command Handlers ------------------ #
-
-    def _start_thread(self, params):
-        """Launch acquisition or generation in a background thread"""
-        mode = params.get("mode", "acquire")
+        dev = FtdiDevice()
 
         def worker():
             if mode == "acquire":
-                Reader(**params).run()
+                Reader().run(
+                    dev=dev,
+                    in_path=in_url,
+                    out_path=out,
+                    fs=float(fs) if fs is not None else None,
+                    n=int(n) if n is not None else None,
+                    loops=int(loops) if loops is not None else None,
+                    chunk=int(chunk),
+                )
             elif mode == "generate":
-                Writer(**params).run()
+                Writer().run(
+                    dev=dev,
+                    out_path=out,                 # FTDI URL for output device
+                    fo=float(fo) if fo is not None else None,
+                    wave=w,
+                    amp=float(amp),
+                    n=int(n) if n is not None else None,
+                    loops=int(loops) if loops is not None else None,
+                    chunk=int(chunk),
+                )
             else:
-                print(f"[WARN] Invalid start mode: {mode}")
+                print(f"[WARN] start.mode must be acquire|generate (got {mode})")
+        self._bg = threading.Thread(target=worker, daemon=True)
+        self._bg.start()
+        print(f"[ScriptRunner] START launched (mode={mode}).")
 
-        self.active_thread = threading.Thread(target=worker, daemon=True)
-        self.active_thread.start()
-        print(f"[ScriptRunner] START ({mode}) launched in background.")
-
-    def _wait(self, params):
-        """Pause execution for time or loop count"""
-        seconds = params.get("seconds")
-        loops = params.get("loops")
-        if seconds:
-            print(f"[ScriptRunner] WAIT for {seconds}s...")
-            time.sleep(seconds)
-        elif loops:
-            print(f"[ScriptRunner] WAIT for {loops} loops (simulated)...")
-            time.sleep(loops * 0.1)
+    def _wait(self, p):
+        secs  = p.get("seconds")
+        loops = p.get("loops")
+        if secs is not None:
+            print(f"[ScriptRunner] WAIT {secs}s")
+            time.sleep(float(secs))
+        elif loops is not None:
+            print(f"[ScriptRunner] WAIT loops={loops} (simulated)")
+            time.sleep(float(loops) * 0.1)
         else:
-            print("[ScriptRunner] WAIT missing time or loop count.")
+            print("[ScriptRunner] WAIT needs seconds or loops")
 
     def _stop(self):
-        """Stop active thread safely"""
-        if self.active_thread:
-            print("[ScriptRunner] STOP signal sent. Waiting for thread...")
-            self.loopctl.stop()
-            self.active_thread.join(timeout=3)
-            self.active_thread = None
+        if self._bg and self._bg.is_alive():
+            print("[ScriptRunner] STOP waiting for background job to finish...")
+            self._bg.join(timeout=5)
+            self._bg = None
             print("[ScriptRunner] STOP complete.")
         else:
-            print("[ScriptRunner] No active thread to stop.")
+            print("[ScriptRunner] No active background job.")
 
-    def _read(self, params):
-        """One-shot FTDI read"""
-        print("[ScriptRunner] READ operation:")
-        Reader(**params).run()
+    def _read(self, p):
+        print("[ScriptRunner] READ (one-shot)")
+        dev = FtdiDevice()
+        Reader().run(
+            dev=dev,
+            in_path=p.get("in"),
+            out_path=p.get("out"),
+            fs=float(p.get("fs")) if p.get("fs") is not None else None,
+            n=int(p.get("n")) if p.get("n") is not None else None,
+            loops=int(p.get("loops")) if p.get("loops") is not None else None,
+            chunk=int(p.get("chunk", 512)),
+        )
 
-    def _write(self, params):
-        """One-shot FTDI write"""
-        print("[ScriptRunner] WRITE operation:")
-        Writer(**params).run()
+    def _write(self, p):
+        print("[ScriptRunner] WRITE (one-shot)")
+        dev = FtdiDevice()
+        wave_name = (p.get("wave") or "sine").lower()
+        w = {"sine": Wave.SINE, "square": Wave.SQUARE, "triangle": Wave.TRIANGLE}.get(wave_name, Wave.SINE)
+        Writer().run(
+            dev=dev,
+            out_path=p.get("out"),                 # FTDI URL
+            fo=float(p.get("fo")) if p.get("fo") is not None else None,
+            wave=w,
+            amp=float(p.get("amp", 1.0)),
+            n=int(p.get("n")) if p.get("n") is not None else None,
+            loops=int(p.get("loops")) if p.get("loops") is not None else None,
+            chunk=int(p.get("chunk", 512)),
+        )
