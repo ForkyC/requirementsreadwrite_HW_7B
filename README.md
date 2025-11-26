@@ -29,3 +29,21 @@ python -m oscifgen run --script scripts/demo.json
 # WAIT done.
 # STOP complete (joined background job).
 # WRITE bytes=... time_s=... throughput_Bps=...
+
+
+## Multi-Threaded Scope (Homework 9)
+
+This repository also contains a multi-threaded scope example, as documented in Chapter 11
+("Multi-Threading") of the project PDF.
+
+### Location
+
+- Folder: `scope_mt`
+- Entry point: `scope.py`
+
+### How to Run
+
+```bash
+git clone https://github.com/ForkyC/requirementsreadwrite_HW_7B
+cd requirementsreadwrite_HW_7B/scope_mt
+python scope.py start sampleTime=1ms wait=5s stop
