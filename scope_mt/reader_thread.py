@@ -1,3 +1,4 @@
+# scope_mt/reader_thread.py
 import threading
 import time
 
@@ -16,9 +17,12 @@ class ReaderThread(threading.Thread):
             while not self.stop_token.stopped():
                 start = time.monotonic()
 
-                data = self.dev.read_chunk(16)
+                # Read a small chunk of microphone samples
+                # 256 bytes instead of 16 for more signal
+                data = self.dev.read_chunk(256)
                 ts = time.strftime("%H:%M:%S", time.localtime())
 
+                # Treat the bytes like you did FTDI: hex dump = "oscilloscope display"
                 with self.out_lock:
                     print(f"[scope] {ts}  {data.hex(' ')}")
 

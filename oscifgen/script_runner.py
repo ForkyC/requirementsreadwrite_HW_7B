@@ -1,8 +1,16 @@
-import json, time, threading
+# OLD
+# from .reader import Reader
+# from .writer import Writer
+# from .ftdi_device import FtdiDevice
+# from .wavegen import Wave
+
+# NEW
 from .reader import Reader
 from .writer import Writer
-from .ftdi_device import FtdiDevice
+from .file_device import FileDevice
+from .mic_device import MicrophoneDevice
 from .wavegen import Wave
+
 
 class ScriptRunner:
     """
@@ -29,6 +37,7 @@ class ScriptRunner:
       ]
     }
     """
+
     def __init__(self, script_path: str):
         self.script_path = script_path
         self._bg = None  # background thread
@@ -61,19 +70,24 @@ class ScriptRunner:
 
     # ---- handlers ----
     def _start(self, p):
-        mode   = (p.get("mode") or "acquire").lower()
+        mode = (p.get("mode") or "acquire").lower()
         in_url = p.get("in")
-        out    = p.get("out")
-        fs     = p.get("fs")
-        fo     = p.get("fo")
-        n      = p.get("n")
-        loops  = p.get("loops")
-        chunk  = p.get("chunk", 512)
-        amp    = p.get("amp", 1.0)
+        out = p.get("out")
+        fs = p.get("fs")
+        fo = p.get("fo")
+        n = p.get("n")
+        loops = p.get("loops")
+        chunk = p.get("chunk", 512)
+        amp = p.get("amp", 1.0)
         wave_name = (p.get("wave") or "sine").lower()
-        w = {"sine": Wave.SINE, "square": Wave.SQUARE, "triangle": Wave.TRIANGLE}.get(wave_name, Wave.SINE)
+        w = {"sine": Wave.SINE, "square": Wave.SQUARE,
+             "triangle": Wave.TRIANGLE}.get(wave_name, Wave.SINE)
 
-        dev = FtdiDevice()
+        src = p.get("in", "")
+        if isinstance(src, str) and src.lower().startswith("mic"):
+            dev = MicrophoneDevice()
+        else:
+            dev = FileDevice()
 
         def worker():
             if mode == "acquire":
@@ -98,13 +112,14 @@ class ScriptRunner:
                     chunk=int(chunk),
                 )
             else:
-                print(f"[WARN] start.mode must be acquire|generate (got {mode})")
+                print(
+                    f"[WARN] start.mode must be acquire|generate (got {mode})")
         self._bg = threading.Thread(target=worker, daemon=True)
         self._bg.start()
         print(f"[ScriptRunner] START launched (mode={mode}).")
 
     def _wait(self, p):
-        secs  = p.get("seconds")
+        secs = p.get("seconds")
         loops = p.get("loops")
         if secs is not None:
             print(f"[ScriptRunner] WAIT {secs}s")
@@ -126,7 +141,12 @@ class ScriptRunner:
 
     def _read(self, p):
         print("[ScriptRunner] READ (one-shot)")
-        dev = FtdiDevice()
+        src = p.get("in", "")
+        if isinstance(src, str) and src.lower().startswith("mic"):
+            dev = MicrophoneDevice()
+        else:
+            dev = FileDevice()
+
         Reader().run(
             dev=dev,
             in_path=p.get("in"),
@@ -139,9 +159,15 @@ class ScriptRunner:
 
     def _write(self, p):
         print("[ScriptRunner] WRITE (one-shot)")
-        dev = FtdiDevice()
+        src = p.get("in", "")
+        if isinstance(src, str) and src.lower().startswith("mic"):
+            dev = MicrophoneDevice()
+        else:
+            dev = FileDevice()
+
         wave_name = (p.get("wave") or "sine").lower()
-        w = {"sine": Wave.SINE, "square": Wave.SQUARE, "triangle": Wave.TRIANGLE}.get(wave_name, Wave.SINE)
+        w = {"sine": Wave.SINE, "square": Wave.SQUARE,
+             "triangle": Wave.TRIANGLE}.get(wave_name, Wave.SINE)
         Writer().run(
             dev=dev,
             out_path=p.get("out"),                 # FTDI URL

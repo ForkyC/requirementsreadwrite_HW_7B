@@ -1,9 +1,11 @@
+# scope_mt/scope.py
 import sys
 import threading
-from stop_token import StopToken
-from ftdi_device import MockFtdiDevice
-from timer_thread import TimerThread
-from reader_thread import ReaderThread
+
+from .stop_token import StopToken
+from .mic_device import MicrophoneDevice
+from .timer_thread import TimerThread
+from .reader_thread import ReaderThread
 
 
 class ScopeApp:
@@ -12,15 +14,20 @@ class ScopeApp:
 
     def run(self, sample_ms, wait_s):
         stop = StopToken()
-        dev = MockFtdiDevice()
 
+        # Use microphone as the input device instead of FTDI
+        # sample_interval is how often we read from the mic
         sample_interval_s = sample_ms / 1000.0
+
+        # Create the device – default system mic
+        dev = MicrophoneDevice(samplerate=44100, channels=1)
 
         timer = TimerThread(wait_s, stop, self.out_lock)
         reader = ReaderThread(dev, sample_interval_s, stop, self.out_lock)
 
         with self.out_lock:
-            print(f"[main] start scope: sample={sample_ms}ms wait={wait_s}s")
+            print(
+                f"[main] start scope (mic): sample={sample_ms}ms wait={wait_s}s")
 
         reader.start()
         timer.start()
