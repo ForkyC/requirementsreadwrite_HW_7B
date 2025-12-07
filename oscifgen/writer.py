@@ -8,26 +8,36 @@ from .wavegen import Waveform
 from .scheduler import Pacer
 # --------------------------
 
+from .wavegen import Wave, Waveform, make_waveform
+
 
 class Writer:
-    """
-    Implements reqfWrite:
-    Generate and write bytes at output frequency Fo.
-    Termination is controlled by N (bytes) and/or loops (iteration count).
-    If both are provided, N takes precedence (stop as soon as N is reached).
-    """
-
     def run(
         self,
         dev: Device,
-        out_path: str,
-        fo: float,
-        wave: Waveform,
-        amp: float = 1.0,            # kept for CLI parity; apply inside wave if desired
-        n: Optional[int] = None,
-        loops: Optional[int] = None,
-        chunk: int = 1024,
+        out_path: Optional[str],
+        fo: Optional[float],
+        wave,
+        amp: float,
+        n: Optional[int],
+        loops: Optional[int],
+        chunk: int,
     ) -> int:
+        # --- NEW: normalize wave to a Waveform ---
+        # Accepts:
+        #   - Wave enum (Wave.SINE / SQUARE / TRIANGLE)
+        #   - string ("sine", "square", "triangle")
+        #   - Waveform (already a generator)
+        if isinstance(wave, Waveform):
+            wf = wave
+        elif isinstance(wave, Wave):
+            wf = Waveform(kind=wave, amp=amp)
+        elif isinstance(wave, str):
+            wf = make_waveform(wave, amp=amp)
+        else:
+            raise TypeError(f"Unsupported wave type: {type(wave)!r}")
+        # -----------------------------------------
+        # ... existing code below ...
         # Validate termination conditions
         if (n is None and loops is None) or fo <= 0:
             print("Provide --n or --loops (or both), and a positive --fo.")
@@ -69,7 +79,7 @@ class Writer:
                     break
 
                 # Generate waveform bytes; apply amp scale inside your wavegen if supported.
-                buf = wave.next_bytes(need)
+                buf = wf.next_bytes(need)
                 w = dev.write(buf)
                 if w.bytes < 0 or w.err:
                     print(f"Write error: {w.err}")
@@ -89,5 +99,3 @@ class Writer:
             f"time_s={elapsed:.6f} throughput_Bps={thr:.2f}"
         )
         return status
-
-

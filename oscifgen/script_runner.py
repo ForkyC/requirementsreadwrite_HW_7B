@@ -5,6 +5,10 @@
 # from .wavegen import Wave
 
 # NEW
+import json
+import threading
+import time
+
 from .reader import Reader
 from .writer import Writer
 from .file_device import FileDevice
